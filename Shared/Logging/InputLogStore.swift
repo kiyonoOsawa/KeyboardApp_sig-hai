@@ -36,16 +36,19 @@ final class InputLogStore {
         logToConsole(event)
 
         guard let container else { return }
-        let context = ModelContext(container)
-        let entry = KeyInputLog(
-            keyLabel: event.keyLabel,
-            flickDirection: event.flickDirection,
-            outputText: event.outputText,
-            actionType: event.actionType.rawValue,
-            documentContextBefore: event.documentContextBefore
-        )
-        context.insert(entry)
-        try? context.save()
+        let snapshot = event
+        DispatchQueue.main.async {
+            let context = ModelContext(container)
+            let entry = KeyInputLog(
+                keyLabel: snapshot.keyLabel,
+                flickDirection: snapshot.flickDirection,
+                outputText: snapshot.outputText,
+                actionType: snapshot.actionType.rawValue,
+                documentContextBefore: snapshot.documentContextBefore
+            )
+            context.insert(entry)
+            try? context.save()
+        }
     }
 
     /// 一文を先に保存し、続けてネガポジ診断してスコアを付与する。

@@ -233,7 +233,7 @@ extension KeyboardViewController: KeyboardViewDelegate {
         case .character:
             if composer.transformType(for: event.outputText) != nil {
                 handleKanaTransform(event.outputText, event: event)
-                refreshCandidates()
+                scheduleCandidateRefresh()
                 return
             }
             textDocumentProxy.insertText(event.outputText)
@@ -300,6 +300,13 @@ extension KeyboardViewController: KeyboardViewDelegate {
         case .voicing:
             break
         }
-        refreshCandidates()
+        scheduleCandidateRefresh()
+    }
+
+    /// 文字入力を先に返し、候補の引き直しは次のターンで行う
+    private func scheduleCandidateRefresh() {
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshCandidates()
+        }
     }
 }

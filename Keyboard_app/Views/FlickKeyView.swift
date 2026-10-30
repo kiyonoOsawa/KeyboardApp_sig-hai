@@ -13,6 +13,7 @@ final class FlickKeyView: UIView {
     private let handler = FlickInputHandler()
     private let centerLabel = UILabel()
     private let previewView = FlickPreviewView()
+    private var highlightedDirection: FlickDirection?
 
     var keyType: FlickKey.KeyType { key.type }
     var onKeyPress: ((FlickKey, FlickDirection, String) -> Void)?
@@ -97,6 +98,7 @@ final class FlickKeyView: UIView {
 
         handler.onTouchBegan = { [weak self] in
             guard let self else { return }
+            self.highlightedDirection = nil
             self.animatePress(pressed: true)
             self.previewView.configure(key: self.key, theme: self.theme)
             self.previewView.isHidden = self.key.type != .kana
@@ -133,6 +135,8 @@ final class FlickKeyView: UIView {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let point = touches.first?.location(in: self) else { return }
         let dir = handler.handleTouchMoved(point)
+        guard dir != highlightedDirection else { return }
+        highlightedDirection = dir
         previewView.updateHighlight(direction: dir)
     }
 
@@ -157,7 +161,7 @@ final class FlickKeyView: UIView {
     }
 
     private func animatePress(pressed: Bool) {
-        UIView.animate(withDuration: 0.08) {
+        UIView.animate(withDuration: 0.04) {
             self.transform = pressed ? CGAffineTransform(scaleX: 0.94, y: 0.94) : .identity
             self.backgroundColor = pressed ? self.theme.keyPressedColor : self.theme.keyColor
         }
