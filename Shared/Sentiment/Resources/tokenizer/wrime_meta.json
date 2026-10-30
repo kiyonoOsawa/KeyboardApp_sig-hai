@@ -1,0 +1,12 @@
+{
+  "model_name": "neuralnaut/deberta-wrime-sentiment",
+  "max_length": 128,
+  "tokenizer_class": "DebertaV2TokenizerFast",
+  "cls_token_id": 96871,
+  "sep_token_id": 96868,
+  "pad_token_id": 96869,
+  "unk_token_id": 96870,
+  "denormalize_scale": 2.0,
+  "score_min": -2.0,
+  "score_max": 2.0
+}
