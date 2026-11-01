@@ -1,0 +1,8 @@
+# export_coreml.py が再生成する。GitHub の 100MB 制限を超えるため履歴に含めない。
+Shared/Sentiment/Resources/WRIMESentiment.mlpackage/Data/com.apple.CoreML/weights/weight.bin
+
+# Xcode の個人設定
+xcuserdata/
+*.xcuserstate
+
+.DS_Store
