@@ -53,7 +53,7 @@ final class InputLogStore {
 
     /// 一文を先に保存し、続けてネガポジ診断してスコアを付与する。
     /// （分析を待ってから保存すると、キーボードでモデル読み込み失敗時に文自体が消える）
-    func logSentence(text: String, startedAt: Date) {
+    func logSentence(text: String, startedAt: Date, liveSentiment: SentimentResult? = nil) {
         let message = "[SentenceLog] \(text)"
         print(message)
         logger.info("\(message)")
@@ -66,6 +66,11 @@ final class InputLogStore {
 
         let context = ModelContext(container)
         let entry = SentenceInputLog(text: text, startedAt: startedAt)
+        if let liveSentiment {
+            entry.sentimentScore = liveSentiment.score
+            entry.sentimentLabel = liveSentiment.label
+            entry.sentimentIsLive = true
+        }
         context.insert(entry)
         do {
             try context.save()
@@ -76,6 +81,8 @@ final class InputLogStore {
             return
         }
 
+        // 647MB の WRIME はキーボード拡張を落とす。確定後の上書きはメインアプリ側。
+        guard !OnDeviceSentimentAnalyzer.isKeyboardExtension else { return }
         let entryID = entry.id
         Task { @MainActor in
             await analyzeAndAttachSentiment(text: text, entryID: entryID)
@@ -92,6 +99,7 @@ final class InputLogStore {
         guard let entry = try? context.fetch(descriptor).first else { return }
         entry.sentimentScore = score
         entry.sentimentLabel = label
+        entry.sentimentIsLive = false
         try? context.save()
     }
 

@@ -116,12 +116,13 @@ struct ContentView: View {
         isAnalyzingPending = true
         defer { isAnalyzingPending = false }
 
-        let pending = sentenceLogs.filter { $0.sentimentScore == nil }
+        let pending = sentenceLogs.filter { $0.sentimentScore == nil || $0.sentimentIsLive == true }
         for log in pending {
             do {
                 let result = try await OnDeviceSentimentAnalyzer.shared.analyze(text: log.text)
                 log.sentimentScore = result.score
                 log.sentimentLabel = result.label
+                log.sentimentIsLive = false
                 print(result.consoleDescription)
             } catch {
                 print("[SentimentLog] 分析失敗: \(error.localizedDescription)")
@@ -162,6 +163,11 @@ private struct SentenceLogRowView: View {
 
             if let score = log.sentimentScore, let label = log.sentimentLabel {
                 SentimentBarView(score: score, label: label)
+                if log.sentimentIsLive == true {
+                    Text("キーボード上の推定")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             } else {
                 Text("感情極性: 未分析")
                     .font(.caption)

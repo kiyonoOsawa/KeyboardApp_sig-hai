@@ -29,6 +29,11 @@ struct SentimentResult: Equatable, Sendable {
         }
     }
 
+    /// 背面色の区分。±0.1 以内を基準（中立）とする。
+    var polarity: SentimentPolarity {
+        SentimentPolarity(score: score)
+    }
+
     var consoleDescription: String {
         let barPosition = max(0, min(40, Int((score + 2) * 10)))
         let marker = String(repeating: " ", count: barPosition) + "▼"
@@ -40,5 +45,21 @@ struct SentimentResult: Equatable, Sendable {
         [-2]────────────────[0]────────────────[+2]
         \(marker)
         """
+    }
+}
+
+enum SentimentPolarity: Equatable, Sendable {
+    case positive
+    case negative
+    case neutral
+
+    init(score: Double) {
+        if score > 0.1 {
+            self = .positive
+        } else if score < -0.1 {
+            self = .negative
+        } else {
+            self = .neutral
+        }
     }
 }

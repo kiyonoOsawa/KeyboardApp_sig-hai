@@ -15,6 +15,9 @@ actor OnDeviceSentimentAnalyzer {
     private var model: MLModel?
     private var tokenizer: HuggingFaceTokenizer?
     private var loadError: Error?
+    private var loadedUnits: MLComputeUnits?
+    /// 背面では GPU が使えず、同じ設定のままだと以降の分析が全部失敗する
+    private var gpuDenied = false
     private(set) var statusDetail: String = "未初期化"
 
     nonisolated static var isKeyboardExtension: Bool {
@@ -22,7 +25,27 @@ actor OnDeviceSentimentAnalyzer {
     }
 
     func analyze(text: String) async throws -> SentimentResult {
-        try loadIfNeeded()
+        do {
+            return try await predict(text: text, units: unitsForThisRun)
+        } catch {
+            guard unitsForThisRun != .cpuOnly, Self.shouldRetryOnCPU(error) else { throw error }
+            gpuDenied = true
+            model = nil
+            loadedUnits = nil
+            loadError = nil
+            statusDetail = "GPU が使えないため CPU で分析します"
+            return try await predict(text: text, units: .cpuOnly)
+        }
+    }
+
+    /// 背面中の GPU 実行は iOS が拒否する。Neural Engine と CPU だけを使う。
+    private var unitsForThisRun: MLComputeUnits {
+        if Self.isKeyboardExtension || gpuDenied { return .cpuOnly }
+        return .cpuAndNeuralEngine
+    }
+
+    private func predict(text: String, units: MLComputeUnits) async throws -> SentimentResult {
+        try loadIfNeeded(units: units)
         guard let model, let tokenizer else {
             throw loadError ?? SentimentAnalyzerError.modelNotFound
         }
@@ -43,10 +66,18 @@ actor OnDeviceSentimentAnalyzer {
         return SentimentResult(text: text, score: score, label: label)
     }
 
+    private static func shouldRetryOnCPU(_ error: Error) -> Bool {
+        let blob = error.localizedDescription + " " + String(describing: error)
+        return blob.contains("BackgroundExecutionNotPermitted")
+            || blob.contains("Insufficient Permission")
+            || blob.contains("asynchronous prediction")
+            || blob.contains("kIOGPU")
+    }
+
     var isReady: Bool {
         get async {
             do {
-                try loadIfNeeded()
+                try loadIfNeeded(units: unitsForThisRun)
                 return model != nil && tokenizer != nil
             } catch {
                 return false
@@ -61,8 +92,12 @@ actor OnDeviceSentimentAnalyzer {
         }
     }
 
-    private func loadIfNeeded() throws {
-        if model != nil, tokenizer != nil { return }
+    private func loadIfNeeded(units: MLComputeUnits) throws {
+        if model != nil, tokenizer != nil, loadedUnits == units { return }
+        if loadedUnits != units {
+            model = nil
+            loadError = nil
+        }
         if let loadError { throw loadError }
 
         do {
@@ -85,10 +120,12 @@ actor OnDeviceSentimentAnalyzer {
             }
 
             let config = MLModelConfiguration()
-            // キーボードはメモリ制約が厳しいので CPU 優先
-            config.computeUnits = Self.isKeyboardExtension ? .cpuOnly : .all
+            config.computeUnits = units
             model = try MLModel(contentsOf: compiledURL, configuration: config)
-            statusDetail = "端末内モデル準備完了（保存と同時に分析）"
+            loadedUnits = units
+            statusDetail = units == .cpuOnly
+                ? "端末内モデル準備完了（CPU）"
+                : "端末内モデル準備完了（Neural Engine）"
         } catch {
             loadError = error
             if statusDetail == "未初期化" {

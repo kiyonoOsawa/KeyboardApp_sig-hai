@@ -19,6 +19,8 @@ final class SentenceInputLog {
     var sentimentScore: Double?
     /// 強いネガティブ〜強いポジティブ
     var sentimentLabel: String?
+    /// キーボード上の即時推定。メインアプリの WRIME で上書きする前は true
+    var sentimentIsLive: Bool?
 
     init(
         text: String,

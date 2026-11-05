@@ -54,6 +54,20 @@
 			);
 			target = CE272A522FDA9061000F30CF /* sb_26sp_app */;
 		};
+		CE303B703009C1A0006E4EF0 /* Exceptions for "Shared" folder in "Keyboard_app" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Sentiment/Resources/README.md,
+				Sentiment/Resources/WRIMESentiment.mlpackage,
+				Sentiment/Resources/tokenizer/added_tokens.json,
+				Sentiment/Resources/tokenizer/special_tokens_map.json,
+				Sentiment/Resources/tokenizer/spm.model,
+				Sentiment/Resources/tokenizer/tokenizer.json,
+				Sentiment/Resources/tokenizer/tokenizer_config.json,
+				Sentiment/Resources/tokenizer/wrime_meta.json,
+			);
+			target = CE272A642FDA910D000F30CF /* Keyboard_app */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +89,9 @@
 		};
 		CE273A012FDA920D000F30CF /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CE303B703009C1A0006E4EF0 /* Exceptions for "Shared" folder in "Keyboard_app" target */,
+			);
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -445,6 +462,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7Y5RBD24LU;
+				EXCLUDED_SOURCE_FILE_NAMES = "WRIMESentiment.mlpackage WRIMESentiment.mlmodelc tokenizer.json tokenizer_config.json special_tokens_map.json added_tokens.json wrime_meta.json spm.model weight.bin";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Keyboard_app/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Keyboard_app;
@@ -474,6 +492,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7Y5RBD24LU;
+				EXCLUDED_SOURCE_FILE_NAMES = "WRIMESentiment.mlpackage WRIMESentiment.mlmodelc tokenizer.json tokenizer_config.json special_tokens_map.json added_tokens.json wrime_meta.json spm.model weight.bin";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Keyboard_app/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Keyboard_app;

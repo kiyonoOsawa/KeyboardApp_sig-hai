@@ -9,10 +9,12 @@ final class CandidateBarView: UIView {
     var onSelect: ((ConversionCandidate) -> Void)?
 
     private var theme: Theme
+    private(set) var currentPolarity: SentimentPolarity = .neutral
     private var candidates: [ConversionCandidate] = []
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
     private let placeholder = UILabel()
+    private let sentimentLabel = UILabel()
     private let separator = UIView()
     private var separatorHeight: NSLayoutConstraint?
 
@@ -31,8 +33,22 @@ final class CandidateBarView: UIView {
     func applyTheme(_ theme: Theme) {
         guard theme.name != self.theme.name else { return }
         self.theme = theme
-        backgroundColor = theme.candidateBarColor
+        backgroundColor = .clear
         rebuild()
+    }
+
+    func setLiveSentiment(_ result: SentimentResult?) {
+        currentPolarity = result?.polarity ?? .neutral
+        let onColor = currentPolarity != .neutral
+        placeholder.textColor = onColor ? UIColor.white.withAlphaComponent(0.9) : .secondaryLabel
+        guard let result else {
+            sentimentLabel.text = nil
+            sentimentLabel.isHidden = true
+            return
+        }
+        sentimentLabel.isHidden = false
+        sentimentLabel.text = String(format: "%+.1f %@", result.score, result.label)
+        sentimentLabel.textColor = onColor ? .white : .secondaryLabel
     }
 
     func setCandidates(_ candidates: [ConversionCandidate]) {
@@ -42,13 +58,21 @@ final class CandidateBarView: UIView {
     }
 
     private func setup() {
-        backgroundColor = theme.candidateBarColor
+        backgroundColor = .clear
 
         placeholder.text = "変換候補"
         placeholder.font = .systemFont(ofSize: 13)
         placeholder.textColor = .secondaryLabel
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         addSubview(placeholder)
+
+        sentimentLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        sentimentLabel.textAlignment = .right
+        sentimentLabel.isHidden = true
+        sentimentLabel.isUserInteractionEnabled = false
+        sentimentLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        sentimentLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(sentimentLabel)
 
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
@@ -72,8 +96,11 @@ final class CandidateBarView: UIView {
 
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: sentimentLabel.leadingAnchor, constant: -4),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            sentimentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            sentimentLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
