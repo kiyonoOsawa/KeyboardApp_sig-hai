@@ -38,17 +38,24 @@ final class CandidateBarView: UIView {
     }
 
     func setLiveSentiment(_ result: SentimentResult?) {
-        currentPolarity = result?.polarity ?? .neutral
-        let onColor = currentPolarity != .neutral
-        placeholder.textColor = onColor ? UIColor.white.withAlphaComponent(0.9) : .secondaryLabel
         guard let result else {
             sentimentLabel.text = nil
             sentimentLabel.isHidden = true
+            applyPolarityTint(.neutral)
             return
         }
         sentimentLabel.isHidden = false
         sentimentLabel.text = String(format: "%+.1f %@", result.score, result.label)
-        sentimentLabel.textColor = onColor ? .white : .secondaryLabel
+        applyPolarityTint(result.polarity)
+    }
+
+    func applyPolarityTint(_ polarity: SentimentPolarity) {
+        currentPolarity = polarity
+        let onColor = polarity != .neutral
+        placeholder.textColor = onColor ? UIColor.white.withAlphaComponent(0.9) : .secondaryLabel
+        if !sentimentLabel.isHidden {
+            sentimentLabel.textColor = onColor ? .white : .secondaryLabel
+        }
     }
 
     func setCandidates(_ candidates: [ConversionCandidate]) {

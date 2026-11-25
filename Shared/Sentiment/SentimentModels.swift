@@ -48,6 +48,14 @@ struct SentimentResult: Equatable, Sendable {
     }
 }
 
+/// 判別にかかった時間をコンソールに出すときの書式
+enum SentimentTiming {
+    nonisolated static func text(_ duration: Duration) -> String {
+        let seconds = duration / .seconds(1)
+        return String(format: "%.3f秒（%.2fms）", seconds, seconds * 1000)
+    }
+}
+
 enum SentimentPolarity: Equatable, Sendable {
     case positive
     case negative

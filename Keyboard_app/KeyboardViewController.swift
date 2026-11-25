@@ -52,7 +52,16 @@ class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // 長時間後の再表示でも、保存先の初期化とフルアクセス状態をやり直す
+        logStore.configure()
+        if !hasFullAccess {
+            print("[Keyboard] フルアクセスが OFF のためログ保存できません。設定 → キーボード で有効にしてください。")
+        } else if !logStore.canLog {
+            print("[Keyboard] ログ保存の初期化に失敗しています。アプリを一度開き直してください。")
+        }
         resetSessionIfDocumentChanged()
+        discardSessionIfDocumentCleared()
+        keyboardView?.reloadBackdropSetting()
     }
 
     override func viewWillLayoutSubviews() {
@@ -117,7 +126,7 @@ class KeyboardViewController: UIInputViewController {
 
     @discardableResult
     private func commitSentence() -> SentimentResult? {
-        let live = LiveSentimentScorer.score(sentenceTracker.currentText)
+        let live = scoreLive()
         guard let sentence = sentenceTracker.commit() else { return nil }
         logStore.logSentence(text: sentence.text, startedAt: sentence.startedAt, liveSentiment: live)
         return live
@@ -235,6 +244,8 @@ extension KeyboardViewController: KeyboardViewDelegate {
 
     func keyboardView(_ view: KeyboardView, didPress event: KeyPressEvent) {
         resetSessionIfDocumentChanged()
+        // ×クリアなど、削除キーが来ない清空でも、次の打鍵で古い文を捨てる
+        discardSessionIfDocumentCleared()
         let contextBefore = textDocumentProxy.documentContextBeforeInput
         var scoreWhenPaused = true
 
@@ -268,20 +279,24 @@ extension KeyboardViewController: KeyboardViewDelegate {
             let beforeCount = contextBefore?.count ?? 0
             let selectedCount = textDocumentProxy.selectedText?.count ?? 0
             textDocumentProxy.deleteBackward()
-            if isPlaceholderState {
-                sentenceTracker.discard()
-                composing = ""
-                publishLiveSentiment()
+            if isDocumentEmptyAfterEdit || isPlaceholderState {
+                clearSessionAndSentiment()
             } else if selectedCount > 0 {
                 let wasConverting = !composing.isEmpty
                 sentenceTracker.removeLast(selectedCount)
                 composing = ""
-                finishConversionIfStopped(wasConverting: wasConverting)
+                if sentenceTracker.currentText.isEmpty {
+                    clearSessionAndSentiment()
+                } else {
+                    finishConversionIfStopped(wasConverting: wasConverting)
+                }
             } else {
                 let afterCount = textDocumentProxy.documentContextBeforeInput?.count ?? beforeCount
                 let removed = max(beforeCount - afterCount, 1)
                 sentenceTracker.removeLast(removed)
-                if removed == 1 {
+                if sentenceTracker.currentText.isEmpty || isDocumentEmptyAfterEdit {
+                    clearSessionAndSentiment()
+                } else if removed == 1 {
                     noteDeleted()
                 } else {
                     let wasConverting = !composing.isEmpty
@@ -327,7 +342,7 @@ extension KeyboardViewController: KeyboardViewDelegate {
         case .nextKeyboard:
             scoreWhenPaused = false
             composing = ""
-            let live = LiveSentimentScorer.score(sentenceTracker.currentText)
+            let live = scoreLive()
             if let sentence = sentenceTracker.flush() {
                 logStore.logSentence(text: sentence.text, startedAt: sentence.startedAt, liveSentiment: live)
             }
@@ -371,7 +386,18 @@ extension KeyboardViewController: KeyboardViewDelegate {
     }
 
     private func publishLiveSentiment() {
-        keyboardView?.setLiveSentiment(LiveSentimentScorer.score(sentenceTracker.currentText))
+        keyboardView?.setLiveSentiment(scoreLive())
+    }
+
+    /// いまの文を語彙で判別し、かかった時間をコンソールに出す
+    private func scoreLive() -> SentimentResult? {
+        let clock = ContinuousClock()
+        let started = clock.now
+        let result = LiveSentimentScorer.score(sentenceTracker.currentText)
+        let elapsed = clock.now - started
+        let summary = result.map { String(format: "%+.2f %@", $0.score, $0.label) } ?? "文なし"
+        print("[SentimentTiming] 語彙 判別 \(SentimentTiming.text(elapsed)) → \(summary)")
+        return result
     }
 
     /// 別の入力欄に移ったときだけ文を捨てる。
@@ -380,19 +406,46 @@ extension KeyboardViewController: KeyboardViewDelegate {
         let identifier = textDocumentProxy.documentIdentifier
         guard lastDocumentID != identifier else { return }
         lastDocumentID = identifier
+        clearSessionAndSentiment()
+        refreshCandidates()
+    }
+
+    /// 入力欄の×クリアなど、削除イベントが来ずに空になったあとに打鍵したとき、
+    /// 前の文がバッファに残ったまま連結されるのを防ぐ。
+    /// `documentContextBeforeInput == ""` のときだけ動かす。nil は実機の入力中にも出るので触らない。
+    private func discardSessionIfDocumentCleared() {
+        guard let before = textDocumentProxy.documentContextBeforeInput, before.isEmpty else { return }
+        if let after = textDocumentProxy.documentContextAfterInput, !after.isEmpty {
+            // カーソルが先頭で、後ろにまだ文字がある → クリアではない
+            return
+        }
+        guard sentenceTracker.isActive || !composing.isEmpty else { return }
+        print("[SentenceSession] 入力欄が空のため前の文を破棄: \(sentenceTracker.currentText)")
+        clearSessionAndSentiment()
+    }
+
+    private func clearSessionAndSentiment() {
         sentenceTracker.discard()
         composing = ""
         sentimentWorkItem?.cancel()
-        publishLiveSentiment()
+        keyboardView?.setLiveSentiment(nil)
         refreshCandidates()
     }
 
     /// 文脈が取れているときだけ、空欄（プレースホルダー）と判断する。
     /// 実機では入力中でも文脈が nil になる。nil を空とみなすと、毎打鍵で分析が消える。
     private var isPlaceholderState: Bool {
-        let before = textDocumentProxy.documentContextBeforeInput
-        let after = textDocumentProxy.documentContextAfterInput
-        guard let before, let after else { return false }
-        return before.isEmpty && after.isEmpty
+        guard let before = textDocumentProxy.documentContextBeforeInput, before.isEmpty else { return false }
+        guard let after = textDocumentProxy.documentContextAfterInput else { return false }
+        return after.isEmpty
+    }
+
+    /// 削除直後など、取れた文脈がどちらも空なら欄は空。after が nil のときは before だけでも空とみなす。
+    private var isDocumentEmptyAfterEdit: Bool {
+        guard let before = textDocumentProxy.documentContextBeforeInput, before.isEmpty else { return false }
+        if let after = textDocumentProxy.documentContextAfterInput {
+            return after.isEmpty
+        }
+        return true
     }
 }
