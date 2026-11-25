@@ -16,6 +16,10 @@ class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
     /// まだ漢字にしていない、文末のひらがな
     private var composing = ""
+    /// 打鍵が止まったあとに、そこまでの文を一度だけ判定する
+    private var sentimentWorkItem: DispatchWorkItem?
+    /// 入力欄が替わったら、前の文の判定を持ち越さない
+    private var lastDocumentID: UUID?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -44,6 +48,11 @@ class KeyboardViewController: UIInputViewController {
         ])
 
         updateKeyboardHeight()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        resetSessionIfDocumentChanged()
     }
 
     override func viewWillLayoutSubviews() {
@@ -106,9 +115,12 @@ class KeyboardViewController: UIInputViewController {
         logStore.log(enriched)
     }
 
-    private func commitSentence() {
-        guard let sentence = sentenceTracker.commit() else { return }
-        logStore.logSentence(text: sentence.text, startedAt: sentence.startedAt)
+    @discardableResult
+    private func commitSentence() -> SentimentResult? {
+        let live = LiveSentimentScorer.score(sentenceTracker.currentText)
+        guard let sentence = sentenceTracker.commit() else { return nil }
+        logStore.logSentence(text: sentence.text, startedAt: sentence.startedAt, liveSentiment: live)
+        return live
     }
 
     private func handleKanaTransform(_ marker: String, event: KeyPressEvent) {
@@ -156,31 +168,25 @@ class KeyboardViewController: UIInputViewController {
         keyboardView?.setCandidates(items)
     }
 
-    /// カーソル移動などで未確定読みが文末と食い違っていたら捨てる
-    private func reconcileComposing() {
-        guard !composing.isEmpty else { return }
-        let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        if before.hasSuffix(composing) { return }
-        if before.count >= 8, composing.hasSuffix(before) { return }
-        composing = ""
-    }
-
     private func noteInserted(_ text: String) {
         if Self.isComposingKana(text) {
             composing += text
         } else {
+            let wasConverting = !composing.isEmpty
             composing = ""
+            finishConversionIfStopped(wasConverting: wasConverting)
         }
     }
 
     private func noteDeleted() {
+        let wasConverting = !composing.isEmpty
         if !composing.isEmpty {
             composing.removeLast()
         }
+        finishConversionIfStopped(wasConverting: wasConverting)
     }
 
     private func apply(candidate: ConversionCandidate) {
-        reconcileComposing()
         guard !composing.isEmpty else {
             refreshCandidates()
             return
@@ -188,6 +194,7 @@ class KeyboardViewController: UIInputViewController {
         if candidate.isReading || candidate.text == composing {
             composing = ""
             refreshCandidates()
+            publishLiveSentiment()
             return
         }
 
@@ -207,6 +214,7 @@ class KeyboardViewController: UIInputViewController {
         sentenceTracker.replaceTail(count: deleteCount, with: candidate.text)
         composing = ""
         refreshCandidates()
+        publishLiveSentiment()
     }
 
     private static func isComposingKana(_ text: String) -> Bool {
@@ -226,14 +234,23 @@ extension KeyboardViewController: KeyboardViewDelegate {
     }
 
     func keyboardView(_ view: KeyboardView, didPress event: KeyPressEvent) {
-        reconcileComposing()
+        resetSessionIfDocumentChanged()
         let contextBefore = textDocumentProxy.documentContextBeforeInput
+        var scoreWhenPaused = true
+
+        defer {
+            scheduleCandidateRefresh()
+            if scoreWhenPaused {
+                scheduleLiveSentiment()
+            } else {
+                sentimentWorkItem?.cancel()
+            }
+        }
 
         switch event.actionType {
         case .character:
             if composer.transformType(for: event.outputText) != nil {
                 handleKanaTransform(event.outputText, event: event)
-                scheduleCandidateRefresh()
                 return
             }
             textDocumentProxy.insertText(event.outputText)
@@ -248,9 +265,30 @@ extension KeyboardViewController: KeyboardViewDelegate {
             ))
 
         case .delete:
+            let beforeCount = contextBefore?.count ?? 0
+            let selectedCount = textDocumentProxy.selectedText?.count ?? 0
             textDocumentProxy.deleteBackward()
-            sentenceTracker.handleDelete()
-            noteDeleted()
+            if isPlaceholderState {
+                sentenceTracker.discard()
+                composing = ""
+                publishLiveSentiment()
+            } else if selectedCount > 0 {
+                let wasConverting = !composing.isEmpty
+                sentenceTracker.removeLast(selectedCount)
+                composing = ""
+                finishConversionIfStopped(wasConverting: wasConverting)
+            } else {
+                let afterCount = textDocumentProxy.documentContextBeforeInput?.count ?? beforeCount
+                let removed = max(beforeCount - afterCount, 1)
+                sentenceTracker.removeLast(removed)
+                if removed == 1 {
+                    noteDeleted()
+                } else {
+                    let wasConverting = !composing.isEmpty
+                    composing = ""
+                    finishConversionIfStopped(wasConverting: wasConverting)
+                }
+            }
             recordKeyLog(KeyPressEvent(
                 keyLabel: event.keyLabel,
                 flickDirection: event.flickDirection,
@@ -262,7 +300,9 @@ extension KeyboardViewController: KeyboardViewDelegate {
         case .space:
             textDocumentProxy.insertText(" ")
             sentenceTracker.append(" ")
+            let wasConverting = !composing.isEmpty
             composing = ""
+            finishConversionIfStopped(wasConverting: wasConverting)
             recordKeyLog(KeyPressEvent(
                 keyLabel: event.keyLabel,
                 flickDirection: event.flickDirection,
@@ -272,8 +312,9 @@ extension KeyboardViewController: KeyboardViewDelegate {
             ))
 
         case .return:
+            scoreWhenPaused = false
             composing = ""
-            commitSentence()
+            keyboardView?.setLiveSentiment(commitSentence())
             textDocumentProxy.insertText("\n")
             recordKeyLog(KeyPressEvent(
                 keyLabel: event.keyLabel,
@@ -284,10 +325,13 @@ extension KeyboardViewController: KeyboardViewDelegate {
             ))
 
         case .nextKeyboard:
+            scoreWhenPaused = false
             composing = ""
+            let live = LiveSentimentScorer.score(sentenceTracker.currentText)
             if let sentence = sentenceTracker.flush() {
-                logStore.logSentence(text: sentence.text, startedAt: sentence.startedAt)
+                logStore.logSentence(text: sentence.text, startedAt: sentence.startedAt, liveSentiment: live)
             }
+            keyboardView?.setLiveSentiment(live)
             recordKeyLog(KeyPressEvent(
                 keyLabel: event.keyLabel,
                 flickDirection: event.flickDirection,
@@ -300,7 +344,6 @@ extension KeyboardViewController: KeyboardViewDelegate {
         case .voicing:
             break
         }
-        scheduleCandidateRefresh()
     }
 
     /// 文字入力を先に返し、候補の引き直しは次のターンで行う
@@ -308,5 +351,48 @@ extension KeyboardViewController: KeyboardViewDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.refreshCandidates()
         }
+    }
+
+    /// 変換中の読みが確定・中断されたときだけ、そこまでの文をすぐ分析する
+    private func finishConversionIfStopped(wasConverting: Bool) {
+        guard wasConverting, composing.isEmpty else { return }
+        sentimentWorkItem?.cancel()
+        publishLiveSentiment()
+    }
+
+    /// かなを打ち続けているあいだは待って、止まったらそこまでの文を分析する
+    private func scheduleLiveSentiment() {
+        sentimentWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.publishLiveSentiment()
+        }
+        sentimentWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
+    }
+
+    private func publishLiveSentiment() {
+        keyboardView?.setLiveSentiment(LiveSentimentScorer.score(sentenceTracker.currentText))
+    }
+
+    /// 別の入力欄に移ったときだけ文を捨てる。
+    /// 同じ欄の textDidChange で空欄扱いにすると、1回目のあと毎回文が消えて判定が止まる。
+    private func resetSessionIfDocumentChanged() {
+        let identifier = textDocumentProxy.documentIdentifier
+        guard lastDocumentID != identifier else { return }
+        lastDocumentID = identifier
+        sentenceTracker.discard()
+        composing = ""
+        sentimentWorkItem?.cancel()
+        publishLiveSentiment()
+        refreshCandidates()
+    }
+
+    /// 文脈が取れているときだけ、空欄（プレースホルダー）と判断する。
+    /// 実機では入力中でも文脈が nil になる。nil を空とみなすと、毎打鍵で分析が消える。
+    private var isPlaceholderState: Bool {
+        let before = textDocumentProxy.documentContextBeforeInput
+        let after = textDocumentProxy.documentContextAfterInput
+        guard let before, let after else { return false }
+        return before.isEmpty && after.isEmpty
     }
 }

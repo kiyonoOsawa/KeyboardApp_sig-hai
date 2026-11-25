@@ -21,8 +21,10 @@ final class KeyboardView: UIView {
     private var theme: Theme
     private let candidateBar: CandidateBarView
     private let rowStack = UIStackView()
+    private let sentimentBackdrop = CAGradientLayer()
     private weak var returnKeyView: FlickKeyView?
     private var returnKeyLabel = "決定"
+    private var backdropPolarity: SentimentPolarity?
 
     init(theme: Theme = .default) {
         self.theme = theme
@@ -42,7 +44,7 @@ final class KeyboardView: UIView {
 
     func updateTheme(_ theme: Theme) {
         self.theme = theme
-        backgroundColor = theme.backgroundColor
+        applySentimentBackdrop(animated: false)
         candidateBar.applyTheme(theme)
         for case let row as UIStackView in rowStack.arrangedSubviews {
             for case let keyView as FlickKeyView in row.arrangedSubviews {
@@ -60,8 +62,59 @@ final class KeyboardView: UIView {
         candidateBar.setCandidates(candidates)
     }
 
+    func setLiveSentiment(_ result: SentimentResult?) {
+        candidateBar.setLiveSentiment(result)
+        applySentimentBackdrop(animated: true)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        sentimentBackdrop.frame = bounds
+    }
+
+    private func applySentimentBackdrop(animated: Bool) {
+        let polarity = candidateBar.currentPolarity
+        let colors = Self.backdropColors(for: polarity)
+        let cgColors = colors.map(\.cgColor)
+        let changed = backdropPolarity != polarity
+        sentimentBackdrop.removeAnimation(forKey: "colors")
+        if animated, changed {
+            let animation = CABasicAnimation(keyPath: "colors")
+            animation.fromValue = sentimentBackdrop.presentation()?.colors ?? sentimentBackdrop.colors
+            animation.toValue = cgColors
+            animation.duration = 0.25
+            sentimentBackdrop.add(animation, forKey: "colors")
+        }
+        backdropPolarity = polarity
+        sentimentBackdrop.colors = cgColors
+        backgroundColor = polarity == .neutral ? colors[0] : .clear
+    }
+
+    private static func backdropColors(for polarity: SentimentPolarity) -> [UIColor] {
+        switch polarity {
+        case .positive:
+            return [
+                UIColor(red: 0.93, green: 0.18, blue: 0.16, alpha: 1),
+                UIColor(red: 1.00, green: 0.55, blue: 0.12, alpha: 1),
+            ]
+        case .negative:
+            return [
+                UIColor(red: 0.16, green: 0.38, blue: 0.86, alpha: 1),
+                UIColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1),
+            ]
+        case .neutral:
+            return [
+                UIColor(white: 0.90, alpha: 1),
+                UIColor(white: 0.90, alpha: 1),
+            ]
+        }
+    }
+
     private func setupUI() {
-        backgroundColor = theme.backgroundColor
+        sentimentBackdrop.startPoint = CGPoint(x: 0.5, y: 0)
+        sentimentBackdrop.endPoint = CGPoint(x: 0.5, y: 1)
+        layer.insertSublayer(sentimentBackdrop, at: 0)
+        applySentimentBackdrop(animated: false)
 
         candidateBar.translatesAutoresizingMaskIntoConstraints = false
         candidateBar.onSelect = { [weak self] candidate in

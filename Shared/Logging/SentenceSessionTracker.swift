@@ -14,6 +14,8 @@ final class SentenceSessionTracker {
     private var buffer = ""
     private var startedAt = Date()
 
+    var currentText: String { buffer }
+
     private init() {}
 
     /// 文字・空白・濁点変換結果をセッションに追加
@@ -45,13 +47,23 @@ final class SentenceSessionTracker {
 
     /// 削除キー。バッファが空になったらセッション終了（プレースホルダー状態に復帰）
     func handleDelete() {
-        guard isActive else { return }
-        if !buffer.isEmpty {
-            buffer.removeLast()
+        removeLast(1)
+    }
+
+    func removeLast(_ count: Int) {
+        guard isActive, count > 0 else { return }
+        let drop = min(count, buffer.count)
+        if drop > 0 {
+            buffer.removeLast(drop)
         }
         if buffer.isEmpty {
             reset()
         }
+    }
+
+    /// 入力欄がプレースホルダーに戻ったとき、前の文を分析対象から外す
+    func discard() {
+        reset()
     }
 
     /// 決定・改行で一文を確定
