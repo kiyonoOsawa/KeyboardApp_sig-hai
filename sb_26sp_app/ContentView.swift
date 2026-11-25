@@ -9,6 +9,38 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    /// キーボード拡張が App Group に書いた内容を拾うため、前面に戻るたびに開き直す
+    @State private var container: ModelContainer = SharedModelContainer.shared
+    @State private var lastSeenWriteAt: TimeInterval = 0
+
+    var body: some View {
+        LogListView()
+            .modelContainer(container)
+            .task {
+                InputLogStore.shared.configure()
+                lastSeenWriteAt = InputLogStore.lastWriteAt
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                reloadSharedStoreIfNeeded(force: true)
+            }
+    }
+
+    private func reloadSharedStoreIfNeeded(force: Bool) {
+        let written = InputLogStore.lastWriteAt
+        guard force || written != lastSeenWriteAt else { return }
+        lastSeenWriteAt = written
+        do {
+            container = try SharedModelContainer.makeContainer()
+            print("[SentenceLog] 本体が共有ストアを再読み込みしました")
+        } catch {
+            print("[SentenceLog] 共有ストアの再読み込み失敗: \(error.localizedDescription)")
+        }
+    }
+}
+
+private struct LogListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SentenceInputLog.timestamp, order: .reverse) private var sentenceLogs: [SentenceInputLog]
     @Query(sort: \KeyInputLog.timestamp, order: .reverse) private var keyLogs: [KeyInputLog]
@@ -17,18 +49,24 @@ struct ContentView: View {
     @State private var isAnalyzingPending = false
     @State private var analyzerReady = false
     @State private var analyzerMessage = "モデル確認中…"
+    @AppStorage(LiveBackdropSetting.key, store: UserDefaults(suiteName: AppGroup.identifier))
+    private var liveBackdropEnabled = true
 
     var body: some View {
         NavigationStack {
-//            Group {
+            Group {
                 if sentenceLogs.isEmpty && keyLogs.isEmpty {
-                    ContentUnavailableView(
-                        "ログがありません",
-                        systemImage: "keyboard",
-                        description: Text("キーボードで入力し決定すると、一文の保存と同時にネガポジ診断が行われます。")
-                    )
+                    List {
+                        backdropToggle
+                        ContentUnavailableView(
+                            "ログがありません",
+                            systemImage: "keyboard",
+                            description: Text("キーボードで入力し「決定」を押すと一文が保存されます。フルアクセスが OFF だと保存できません。")
+                        )
+                    }
                 } else {
                     List {
+                        backdropToggle
                         Section {
                             Label(
                                 analyzerReady ? "端末内モデル: 利用可能" : analyzerMessage,
@@ -50,7 +88,7 @@ struct ContentView: View {
                         } header: {
                             Text("感情分析（オンデバイス）")
                         } footer: {
-                            Text("決定キーで一文が保存される瞬間に端末内で診断します。未分析分の再実行用ボタンです。")
+                            Text("決定キーで一文が保存されます。色の変化は入力中の推定、ログの本分析はアプリ起動時です。")
                         }
 
                         if !sentenceLogs.isEmpty {
@@ -98,7 +136,15 @@ struct ContentView: View {
                 InputLogStore.shared.configure()
                 await refreshAnalyzerStatus()
                 await analyzePendingSentences()
-//            }
+            }
+        }
+    }
+
+    private var backdropToggle: some View {
+        Section {
+            Toggle("入力中に背景色を変える", isOn: $liveBackdropEnabled)
+        } footer: {
+            Text("オンにすると、変換の区切りでキーボードの背面が感情の色になります。")
         }
     }
 
@@ -313,5 +359,4 @@ private struct KeyLogRowView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(SharedModelContainer.shared)
 }

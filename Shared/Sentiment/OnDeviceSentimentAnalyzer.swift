@@ -45,10 +45,14 @@ actor OnDeviceSentimentAnalyzer {
     }
 
     private func predict(text: String, units: MLComputeUnits) async throws -> SentimentResult {
+        let clock = ContinuousClock()
+        let started = clock.now
+
         try loadIfNeeded(units: units)
         guard let model, let tokenizer else {
             throw loadError ?? SentimentAnalyzerError.modelNotFound
         }
+        let loaded = clock.now
 
         let encoded = tokenizer.encode(text)
         let inputIds = try Self.multiArray(encoded.inputIds)
@@ -58,11 +62,20 @@ actor OnDeviceSentimentAnalyzer {
             "input_ids": MLFeatureValue(multiArray: inputIds),
             "attention_mask": MLFeatureValue(multiArray: attention),
         ])
+        let tokenized = clock.now
 
         let out = try await model.prediction(from: provider)
         let raw = try Self.firstScalar(from: out)
         let score = SentimentResult.denormalize(raw)
         let label = SentimentResult.label(for: score)
+        let finished = clock.now
+
+        print("""
+        [SentimentTiming] WRIME 判別 合計 \(SentimentTiming.text(finished - started))
+          モデル準備: \(SentimentTiming.text(loaded - started))
+          トークン化: \(SentimentTiming.text(tokenized - loaded))
+          推論: \(SentimentTiming.text(finished - tokenized))（\(units == .cpuOnly ? "CPU" : "CPU+Neural Engine 指定")）
+        """)
         return SentimentResult(text: text, score: score, label: label)
     }
 
@@ -110,7 +123,11 @@ actor OnDeviceSentimentAnalyzer {
                 throw SentimentAnalyzerError.modelNotFound
             }
 
+            let clock = ContinuousClock()
+            let started = clock.now
+
             tokenizer = try HuggingFaceTokenizer(resourceDirectory: tokenizerDir)
+            let tokenizerReady = clock.now
 
             let compiledURL: URL
             if packageURL.pathExtension == "mlpackage" {
@@ -118,10 +135,18 @@ actor OnDeviceSentimentAnalyzer {
             } else {
                 compiledURL = packageURL
             }
+            let compiled = clock.now
 
             let config = MLModelConfiguration()
             config.computeUnits = units
             model = try MLModel(contentsOf: compiledURL, configuration: config)
+            let finished = clock.now
+            print("""
+            [SentimentTiming] モデル読み込み 合計 \(SentimentTiming.text(finished - started))
+              トークナイザ: \(SentimentTiming.text(tokenizerReady - started))
+              コンパイル: \(SentimentTiming.text(compiled - tokenizerReady))
+              ロード: \(SentimentTiming.text(finished - compiled))
+            """)
             loadedUnits = units
             statusDetail = units == .cpuOnly
                 ? "端末内モデル準備完了（CPU）"

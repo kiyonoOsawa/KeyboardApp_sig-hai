@@ -11,20 +11,32 @@ import os
 final class InputLogStore {
     static let shared = InputLogStore()
 
+    /// キーボードが保存したあとに本体アプリが再読み込みするための印
+    static let lastWriteKey = "inputLogLastWriteAt"
+
     private let logger = Logger(subsystem: "com.kiyono.sb-26sp-app", category: "KeyInput")
     private var container: ModelContainer?
     private var isAvailable = false
+    private var lastConfigureError: String?
 
     private init() {}
 
+    /// 失敗しても次回また試せる。長時間後のキーボード再表示でも呼び直す。
     func configure() {
-        guard container == nil else { return }
+        if container != nil {
+            isAvailable = true
+            return
+        }
         do {
             container = try SharedModelContainer.makeContainer()
             isAvailable = true
+            lastConfigureError = nil
+            print("[SentenceLog] SwiftData 初期化完了")
         } catch {
             isAvailable = false
+            lastConfigureError = error.localizedDescription
             logger.error("SwiftDataの初期化に失敗: \(error.localizedDescription)")
+            print("[SentenceLog] SwiftData 初期化失敗: \(error.localizedDescription)")
         }
     }
 
@@ -32,10 +44,18 @@ final class InputLogStore {
         isAvailable && container != nil
     }
 
+    var configureErrorMessage: String? {
+        lastConfigureError
+    }
+
     func log(_ event: KeyPressEvent) {
         logToConsole(event)
 
-        guard let container else { return }
+        configure()
+        guard let container else {
+            print("[KeyLog] 保存スキップ: SwiftData 未初期化（フルアクセスを確認）")
+            return
+        }
         let snapshot = event
         DispatchQueue.main.async {
             let context = ModelContext(container)
@@ -47,7 +67,13 @@ final class InputLogStore {
                 documentContextBefore: snapshot.documentContextBefore
             )
             context.insert(entry)
-            try? context.save()
+            do {
+                try context.save()
+                Self.markStoreWritten()
+            } catch {
+                print("[KeyLog] 保存エラー: \(error.localizedDescription)")
+                self.logger.error("Key save error: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -58,6 +84,7 @@ final class InputLogStore {
         print(message)
         logger.info("\(message)")
 
+        configure()
         guard let container else {
             print("[SentenceLog] 保存失敗: SwiftData 未初期化（フルアクセスを確認）")
             logger.error("Sentence save skipped: container is nil")
@@ -74,6 +101,7 @@ final class InputLogStore {
         context.insert(entry)
         do {
             try context.save()
+            Self.markStoreWritten()
             print("[SentenceLog] 保存完了")
         } catch {
             print("[SentenceLog] 保存エラー: \(error.localizedDescription)")
@@ -90,6 +118,7 @@ final class InputLogStore {
     }
 
     func updateSentenceSentiment(id: UUID, score: Double, label: String) {
+        configure()
         guard let container else { return }
         let context = ModelContext(container)
         var descriptor = FetchDescriptor<SentenceInputLog>(
@@ -100,7 +129,12 @@ final class InputLogStore {
         entry.sentimentScore = score
         entry.sentimentLabel = label
         entry.sentimentIsLive = false
-        try? context.save()
+        do {
+            try context.save()
+            Self.markStoreWritten()
+        } catch {
+            print("[SentimentLog] スコア保存エラー: \(error.localizedDescription)")
+        }
     }
 
     func analyzeAndAttachSentiment(text: String, entryID: UUID) async {
@@ -124,6 +158,7 @@ final class InputLogStore {
     }
 
     func deleteAll() {
+        configure()
         guard let container else { return }
         let context = ModelContext(container)
         if let keyLogs = try? context.fetch(FetchDescriptor<KeyInputLog>()) {
@@ -132,6 +167,22 @@ final class InputLogStore {
         if let sentenceLogs = try? context.fetch(FetchDescriptor<SentenceInputLog>()) {
             for log in sentenceLogs { context.delete(log) }
         }
-        try? context.save()
+        do {
+            try context.save()
+            Self.markStoreWritten()
+        } catch {
+            print("[SentenceLog] 全削除エラー: \(error.localizedDescription)")
+        }
+    }
+
+    /// 本体アプリが App Group 上の最新を読み直すための時刻印
+    private static func markStoreWritten() {
+        let defaults = UserDefaults(suiteName: AppGroup.identifier) ?? .standard
+        defaults.set(Date().timeIntervalSince1970, forKey: lastWriteKey)
+    }
+
+    static var lastWriteAt: TimeInterval {
+        let defaults = UserDefaults(suiteName: AppGroup.identifier) ?? .standard
+        return defaults.double(forKey: lastWriteKey)
     }
 }

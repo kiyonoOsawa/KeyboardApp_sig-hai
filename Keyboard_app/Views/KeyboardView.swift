@@ -25,6 +25,8 @@ final class KeyboardView: UIView {
     private weak var returnKeyView: FlickKeyView?
     private var returnKeyLabel = "決定"
     private var backdropPolarity: SentimentPolarity?
+    private var scoredPolarity: SentimentPolarity = .neutral
+    private var backdropEnabled = true
 
     init(theme: Theme = .default) {
         self.theme = theme
@@ -63,8 +65,15 @@ final class KeyboardView: UIView {
     }
 
     func setLiveSentiment(_ result: SentimentResult?) {
+        backdropEnabled = LiveBackdropSetting.isEnabled
+        scoredPolarity = result?.polarity ?? .neutral
         candidateBar.setLiveSentiment(result)
         applySentimentBackdrop(animated: true)
+    }
+
+    func reloadBackdropSetting() {
+        backdropEnabled = LiveBackdropSetting.isEnabled
+        applySentimentBackdrop(animated: false)
     }
 
     override func layoutSubviews() {
@@ -73,7 +82,8 @@ final class KeyboardView: UIView {
     }
 
     private func applySentimentBackdrop(animated: Bool) {
-        let polarity = candidateBar.currentPolarity
+        let polarity = backdropEnabled ? scoredPolarity : .neutral
+        candidateBar.applyPolarityTint(polarity)
         let colors = Self.backdropColors(for: polarity)
         let cgColors = colors.map(\.cgColor)
         let changed = backdropPolarity != polarity
