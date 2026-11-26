@@ -155,6 +155,7 @@ class KeyboardViewController: UIInputViewController {
             textDocumentProxy.insertText(marker)
             sentenceTracker.append(marker)
             noteInserted(marker)
+            KeyHaptic.playForCharacter(in: view)
             recordKeyLog(KeyPressEvent(
                 keyLabel: event.keyLabel,
                 flickDirection: event.flickDirection,
@@ -179,6 +180,8 @@ class KeyboardViewController: UIInputViewController {
         sentenceTracker.append(text)
         noteDeleted()
         noteInserted(text)
+        KeyHaptic.playForCharacter(in: view)
+      
         recordKeyLog(KeyPressEvent(
             keyLabel: composer.label(for: transform),
             flickDirection: event.flickDirection,
@@ -288,6 +291,7 @@ extension KeyboardViewController: KeyboardViewDelegate {
             textDocumentProxy.insertText(event.outputText)
             sentenceTracker.append(event.outputText)
             noteInserted(event.outputText)
+            KeyHaptic.playForCharacter(in: view)
             recordKeyLog(KeyPressEvent(
                 keyLabel: event.keyLabel,
                 flickDirection: event.flickDirection,
