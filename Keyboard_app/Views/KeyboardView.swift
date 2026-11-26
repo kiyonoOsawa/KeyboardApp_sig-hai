@@ -67,13 +67,14 @@ final class KeyboardView: UIView {
     func setLiveSentiment(_ result: SentimentResult?) {
         backdropEnabled = LiveBackdropSetting.isEnabled
         scoredPolarity = result?.polarity ?? .neutral
-        candidateBar.setLiveSentiment(result)
+        candidateBar.setLiveSentiment(result, showsBadge: CandidateSentimentSetting.isEnabled)
         applySentimentBackdrop(animated: true)
     }
 
     func reloadBackdropSetting() {
         backdropEnabled = LiveBackdropSetting.isEnabled
         applySentimentBackdrop(animated: false)
+        candidateBar.setBadgeEnabled(CandidateSentimentSetting.isEnabled)
     }
 
     override func layoutSubviews() {

@@ -51,13 +51,15 @@ private struct LogListView: View {
     @State private var analyzerMessage = "モデル確認中…"
     @AppStorage(LiveBackdropSetting.key, store: UserDefaults(suiteName: AppGroup.identifier))
     private var liveBackdropEnabled = true
+    @AppStorage(CandidateSentimentSetting.key, store: UserDefaults(suiteName: AppGroup.identifier))
+    private var candidateSentimentEnabled = true
 
     var body: some View {
         NavigationStack {
             Group {
                 if sentenceLogs.isEmpty && keyLogs.isEmpty {
                     List {
-                        backdropToggle
+                        displaySettings
                         ContentUnavailableView(
                             "ログがありません",
                             systemImage: "keyboard",
@@ -66,7 +68,7 @@ private struct LogListView: View {
                     }
                 } else {
                     List {
-                        backdropToggle
+                        displaySettings
                         Section {
                             Label(
                                 analyzerReady ? "端末内モデル: 利用可能" : analyzerMessage,
@@ -88,7 +90,7 @@ private struct LogListView: View {
                         } header: {
                             Text("感情分析（オンデバイス）")
                         } footer: {
-                            Text("決定キーで一文が保存されます。色の変化は入力中の推定、ログの本分析はアプリ起動時です。")
+                            Text("決定キーで一文が保存されます。入力中の推定は、上のスイッチに応じて背景色か候補欄に出ます。ログの本分析はアプリ起動時です。")
                         }
 
                         if !sentenceLogs.isEmpty {
@@ -140,11 +142,12 @@ private struct LogListView: View {
         }
     }
 
-    private var backdropToggle: some View {
+    private var displaySettings: some View {
         Section {
             Toggle("入力中に背景色を変える", isOn: $liveBackdropEnabled)
+            Toggle("候補欄に感情を表示する", isOn: $candidateSentimentEnabled)
         } footer: {
-            Text("オンにすると、変換の区切りでキーボードの背面が感情の色になります。")
+            Text("背景色はキーボード全体の色です。候補欄のスイッチは、漢字候補の右端に今の感情を出します。この表示は背景色を変えません。それぞれ別に切り替えられます。")
         }
     }
 
