@@ -11,12 +11,18 @@ final class CandidateBarView: UIView {
     private var theme: Theme
     private(set) var currentPolarity: SentimentPolarity = .neutral
     private var candidates: [ConversionCandidate] = []
+    private var sentimentResult: SentimentResult?
+    private var showsSentimentBadge = true
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
     private let placeholder = UILabel()
+    private let sentimentBadge = UIView()
+    private let polarityDot = UIView()
     private let sentimentLabel = UILabel()
     private let separator = UIView()
     private var separatorHeight: NSLayoutConstraint?
+    private var scrollTrailingToBadge: NSLayoutConstraint?
+    private var scrollTrailingToEdge: NSLayoutConstraint?
 
     init(theme: Theme) {
         self.theme = theme
@@ -37,25 +43,21 @@ final class CandidateBarView: UIView {
         rebuild()
     }
 
-    func setLiveSentiment(_ result: SentimentResult?) {
-        guard let result else {
-            sentimentLabel.text = nil
-            sentimentLabel.isHidden = true
-            applyPolarityTint(.neutral)
-            return
-        }
-        sentimentLabel.isHidden = false
-        sentimentLabel.text = String(format: "%+.1f %@", result.score, result.label)
-        applyPolarityTint(result.polarity)
+    func setLiveSentiment(_ result: SentimentResult?, showsBadge: Bool) {
+        sentimentResult = result
+        showsSentimentBadge = showsBadge
+        updateSentimentBadge()
+    }
+
+    func setBadgeEnabled(_ enabled: Bool) {
+        showsSentimentBadge = enabled
+        updateSentimentBadge()
     }
 
     func applyPolarityTint(_ polarity: SentimentPolarity) {
         currentPolarity = polarity
         let onColor = polarity != .neutral
         placeholder.textColor = onColor ? UIColor.white.withAlphaComponent(0.9) : .secondaryLabel
-        if !sentimentLabel.isHidden {
-            sentimentLabel.textColor = onColor ? .white : .secondaryLabel
-        }
     }
 
     func setCandidates(_ candidates: [ConversionCandidate]) {
@@ -73,13 +75,22 @@ final class CandidateBarView: UIView {
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         addSubview(placeholder)
 
-        sentimentLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        sentimentLabel.textAlignment = .right
-        sentimentLabel.isHidden = true
-        sentimentLabel.isUserInteractionEnabled = false
-        sentimentLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        sentimentBadge.isHidden = true
+        sentimentBadge.layer.cornerRadius = 13
+        sentimentBadge.layer.cornerCurve = .continuous
+        sentimentBadge.layer.borderWidth = 1
+        sentimentBadge.clipsToBounds = true
+        sentimentBadge.translatesAutoresizingMaskIntoConstraints = false
+        sentimentBadge.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(sentimentBadge)
+
+        polarityDot.layer.cornerRadius = 4
+        polarityDot.translatesAutoresizingMaskIntoConstraints = false
+        sentimentBadge.addSubview(polarityDot)
+
+        sentimentLabel.font = .systemFont(ofSize: 13, weight: .bold)
         sentimentLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(sentimentLabel)
+        sentimentBadge.addSubview(sentimentLabel)
 
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
@@ -103,11 +114,20 @@ final class CandidateBarView: UIView {
 
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: sentimentLabel.leadingAnchor, constant: -4),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            sentimentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            sentimentLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            sentimentBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            sentimentBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            sentimentBadge.heightAnchor.constraint(equalToConstant: 26),
+
+            polarityDot.leadingAnchor.constraint(equalTo: sentimentBadge.leadingAnchor, constant: 8),
+            polarityDot.centerYAnchor.constraint(equalTo: sentimentBadge.centerYAnchor),
+            polarityDot.widthAnchor.constraint(equalToConstant: 8),
+            polarityDot.heightAnchor.constraint(equalToConstant: 8),
+
+            sentimentLabel.leadingAnchor.constraint(equalTo: polarityDot.trailingAnchor, constant: 6),
+            sentimentLabel.trailingAnchor.constraint(equalTo: sentimentBadge.trailingAnchor, constant: -10),
+            sentimentLabel.centerYAnchor.constraint(equalTo: sentimentBadge.centerYAnchor),
 
             stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
@@ -123,6 +143,56 @@ final class CandidateBarView: UIView {
         let height = separator.heightAnchor.constraint(equalToConstant: hairline)
         height.isActive = true
         separatorHeight = height
+
+        scrollTrailingToBadge = scrollView.trailingAnchor.constraint(equalTo: sentimentBadge.leadingAnchor, constant: -4)
+        scrollTrailingToEdge = scrollView.trailingAnchor.constraint(equalTo: trailingAnchor)
+        scrollTrailingToEdge?.isActive = true
+    }
+
+    private func updateSentimentBadge() {
+        guard showsSentimentBadge, let result = sentimentResult else {
+            sentimentBadge.isHidden = true
+            scrollTrailingToBadge?.isActive = false
+            scrollTrailingToEdge?.isActive = true
+            return
+        }
+        sentimentLabel.text = badgeTitle(for: result)
+        applyBadgeStyle(result.polarity)
+        sentimentBadge.isHidden = false
+        scrollTrailingToEdge?.isActive = false
+        scrollTrailingToBadge?.isActive = true
+    }
+
+    private func applyBadgeStyle(_ polarity: SentimentPolarity) {
+        let fill: UIColor
+        let ink: UIColor
+        switch polarity {
+        case .positive:
+            fill = UIColor(red: 1.00, green: 0.92, blue: 0.90, alpha: 1)
+            ink = UIColor(red: 0.78, green: 0.10, blue: 0.12, alpha: 1)
+        case .negative:
+            fill = UIColor(red: 0.90, green: 0.94, blue: 1.00, alpha: 1)
+            ink = UIColor(red: 0.10, green: 0.28, blue: 0.72, alpha: 1)
+        case .neutral:
+            fill = UIColor(white: 0.96, alpha: 1)
+            ink = UIColor(white: 0.28, alpha: 1)
+        }
+        sentimentBadge.backgroundColor = fill
+        sentimentBadge.layer.borderColor = ink.withAlphaComponent(0.45).cgColor
+        sentimentLabel.textColor = ink
+        polarityDot.backgroundColor = ink
+    }
+
+    /// 色と文言を揃える。背面色と同じ ±0.1 でポジティブ / ネガティブ / 中立を分ける
+    private func badgeTitle(for result: SentimentResult) -> String {
+        switch result.polarity {
+        case .positive:
+            return result.score >= 1.5 ? "強いポジティブ" : "ポジティブ"
+        case .negative:
+            return result.score <= -1.5 ? "強いネガティブ" : "ネガティブ"
+        case .neutral:
+            return "中立"
+        }
     }
 
     override func layoutSubviews() {
