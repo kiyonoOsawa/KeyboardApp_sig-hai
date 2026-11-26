@@ -98,6 +98,9 @@ final class FlickKeyView: UIView {
 
         handler.onTouchBegan = { [weak self] in
             guard let self else { return }
+            if let host = self.hapticHostView {
+                KeyHaptic.prepare(in: host)
+            }
             self.highlightedDirection = nil
             self.animatePress(pressed: true)
             self.previewView.configure(key: self.key, theme: self.theme)
@@ -158,6 +161,18 @@ final class FlickKeyView: UIView {
         case .left:   return key.left ?? key.center
         case .right:  return key.right ?? key.center
         }
+    }
+
+    /// キーボード拡張の本体 view。ここに結んだ振動だけが鳴る
+    private var hapticHostView: UIView? {
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let controller = next as? UIInputViewController {
+                return controller.view
+            }
+            responder = next
+        }
+        return window
     }
 
     private func animatePress(pressed: Bool) {
