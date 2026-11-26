@@ -42,6 +42,15 @@ final class KanaComposer {
         "ヵ": "か", "ヶ": "け",
     ]
 
+    /// 濁点を外して清音に戻す。ぱ行は「は」ではなく「ば」へ戻すので、ここには入れない
+    private static let dakutenBase: [Character: Character] = [
+        "が": "か", "ぎ": "き", "ぐ": "く", "げ": "け", "ご": "こ",
+        "ざ": "さ", "じ": "し", "ず": "す", "ぜ": "せ", "ぞ": "そ",
+        "だ": "た", "ぢ": "ち", "づ": "つ", "で": "て", "ど": "と",
+        "ば": "は", "び": "ひ", "ぶ": "ふ", "べ": "へ", "ぼ": "ほ",
+        "ゔ": "う",
+    ]
+
     func applyTransform(to previousChar: Character, type: KanaTransform) -> Character? {
         switch type {
         case .dakuten:
@@ -51,6 +60,31 @@ final class KanaComposer {
         case .small:
             return Self.smallMap[previousChar]
         }
+    }
+
+    /// ゛゜小キーをタップしたときの次の文字。
+    /// 濁点が付く字は濁点を先に付ける。やゆよと、た行の「つ」は小文字を先にする。
+    /// 「つ」は つ→っ→づ→つ と続き、小文字の次に濁点へ進む。
+    func formAfterVoicingKey(for previousChar: Character) -> (KanaTransform, Character)? {
+        switch previousChar {
+        case "や": return (.small, "ゃ")
+        case "ゆ": return (.small, "ゅ")
+        case "よ": return (.small, "ょ")
+        case "つ": return (.small, "っ")
+        case "っ": return (.dakuten, "づ")
+        default:
+            break
+        }
+        if let voiced = Self.dakutenMap[previousChar] {
+            return (.dakuten, voiced)
+        }
+        if let base = Self.dakutenBase[previousChar] {
+            return (.dakuten, base)
+        }
+        if let small = Self.smallMap[previousChar] {
+            return (.small, small)
+        }
+        return nil
     }
 
     func transformType(for marker: String) -> KanaTransform? {

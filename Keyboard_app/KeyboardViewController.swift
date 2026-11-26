@@ -135,6 +135,18 @@ class KeyboardViewController: UIInputViewController {
     private func handleKanaTransform(_ marker: String, event: KeyPressEvent) {
         let contextBefore = textDocumentProxy.documentContextBeforeInput
         guard let transform = composer.transformType(for: marker) else { return }
+
+        // タップは直前の文字を見て、濁点か小文字かを決める
+        if marker == "゛" {
+            guard let before = contextBefore,
+                  let lastChar = before.last,
+                  let (kind, transformed) = composer.formAfterVoicingKey(for: lastChar) else {
+                return
+            }
+            replaceLastCharacter(String(transformed), transform: kind, event: event, before: before)
+            return
+        }
+
         guard let before = contextBefore,
               let lastChar = before.last,
               let transformed = composer.applyTransform(to: lastChar, type: transform) else {
@@ -152,16 +164,25 @@ class KeyboardViewController: UIInputViewController {
             ))
             return
         }
+        replaceLastCharacter(String(transformed), transform: transform, event: event, before: before)
+    }
+
+    private func replaceLastCharacter(
+        _ text: String,
+        transform: KanaComposer.KanaTransform,
+        event: KeyPressEvent,
+        before: String
+    ) {
         textDocumentProxy.deleteBackward()
-        textDocumentProxy.insertText(String(transformed))
+        textDocumentProxy.insertText(text)
         sentenceTracker.handleDelete()
-        sentenceTracker.append(String(transformed))
+        sentenceTracker.append(text)
         noteDeleted()
-        noteInserted(String(transformed))
+        noteInserted(text)
         recordKeyLog(KeyPressEvent(
             keyLabel: composer.label(for: transform),
             flickDirection: event.flickDirection,
-            outputText: String(transformed),
+            outputText: text,
             actionType: .voicing,
             documentContextBefore: before
         ))
