@@ -54,7 +54,8 @@ final class FlickKeyView: UIView {
         centerLabel.textColor = theme.keyTextColor
         centerLabel.font = .systemFont(ofSize: keyFontSize, weight: .medium)
         centerLabel.textAlignment = .center
-        centerLabel.adjustsFontSizeToFitWidth = true
+        centerLabel.numberOfLines = displayLabel.contains("\n") ? 2 : 1
+        centerLabel.adjustsFontSizeToFitWidth = centerLabel.numberOfLines == 1
         centerLabel.minimumScaleFactor = 0.6
         centerLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(centerLabel)
@@ -86,6 +87,7 @@ final class FlickKeyView: UIView {
     }
 
     private var keyFontSize: CGFloat {
+        if key.face?.contains("\n") == true { return 15 }
         if key.face != nil { return 16 }
         switch key.type {
         case .space, .nextKeyboard, .return: return 14

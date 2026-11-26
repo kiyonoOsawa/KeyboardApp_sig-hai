@@ -40,11 +40,11 @@ let kanaKeyLayout: [[FlickKey]] = [
         FlickKey(center: "や", up: "」", down: "よ", left: "「", right: "ゆ", type: .kana),
         FlickKey(center: "ら", up: "る", down: "ろ", left: "り", right: "れ", type: .kana),
     ],
-    // 4行目
+    // 4行目。あ〜わのフリックは変えず、濁点を左、句読点を右に置く
     [
-        FlickKey(center: "☆", up: nil, down: nil, left: nil, right: nil, type: .special),
+        FlickKey(center: "゛", up: "っ", down: "ょ", left: "゜", right: "小", type: .kana, face: "゛゜\n小"),
         FlickKey(center: "わ", up: "ん", down: "わ", left: "を", right: "ー", type: .kana),
-        FlickKey(center: "゛", up: "っ", down: "ょ", left: "゜", right: "小", type: .kana, face: "゛゜小"),
+        FlickKey(center: "、", up: "？", down: "…", left: "。", right: "！", type: .kana, face: "、。?!"),
     ],
     // 5行目（下段）
     [
